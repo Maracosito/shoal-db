@@ -1,0 +1,5 @@
+# Benchmark outputs are machine-specific and must not be committed.
+# See docs/benchmark-guide.md §7 (honest reporting policy).
+*
+!.gitignore
+!TEMPLATE.md

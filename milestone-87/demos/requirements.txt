@@ -1,0 +1,12 @@
+# Shared requirements for all LagoonDB demos and benchmarks.
+# The demos run fully offline with only this dependency installed; the
+# higher-quality embedding providers below are strictly optional.
+
+requests>=2.31,<3
+
+# --- Optional embedding providers (install only if you want them) -----------
+# Local transformer embeddings (no API key needed, ~100MB model download):
+#   pip install sentence-transformers>=2.6
+#
+# OpenAI embeddings (requires OPENAI_API_KEY):
+#   pip install openai>=1.30

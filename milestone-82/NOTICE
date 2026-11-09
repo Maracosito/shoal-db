@@ -1,0 +1,12 @@
+Gannet
+Copyright 2024-2025 The Gannet Contributors
+
+This product includes software developed by The Gannet Contributors
+(https://github.com/gannet-db/gannet).
+
+Gannet is an independent, clean-room open-source project. It is not
+affiliated with, endorsed by, or derived from Turbopuffer or any other
+commercial search database. Publicly observable product concepts (such as
+using object storage as a durable source of truth) served as inspiration
+only; all source code, documentation, branding, and API design in this
+repository are original works of the Gannet contributors.

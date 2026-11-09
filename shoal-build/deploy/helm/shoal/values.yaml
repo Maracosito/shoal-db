@@ -1,0 +1,93 @@
+# Default values for the Shoal Helm chart.
+
+image:
+  repository: ghcr.io/shoal-db/shoal
+  # Defaults to the chart appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  # Defaults to the fullname when empty and create=true.
+  name: ""
+
+# Non-secret configuration (rendered into a ConfigMap consumed via envFrom).
+config:
+  logLevel: info
+  s3:
+    # Leave empty for AWS S3; set for MinIO or other S3-compatible stores,
+    # e.g. http://minio.minio.svc:9000
+    endpoint: ""
+    bucket: shoal
+    region: us-east-1
+    forcePathStyle: false
+  cache:
+    dir: /var/cache/shoal
+    diskBytes: "17179869184"   # 16 GiB; keep below cacheVolume.sizeLimit
+    memoryBytes: "2147483648"  # 2 GiB
+
+# Secret configuration. Either set values here (a Secret is created), or
+# point existingSecret at a Secret containing the keys SHOAL_ROOT_API_KEY,
+# AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY. If your pods get S3 access
+# via IAM roles (IRSA etc.), leave the AWS keys empty.
+auth:
+  existingSecret: ""
+  rootApiKey: ""
+  awsAccessKeyId: ""
+  awsSecretAccessKey: ""
+
+api:
+  replicas: 2
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 4Gi
+  cacheVolume:
+    sizeLimit: 20Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+worker:
+  enabled: true
+  # Keep at 1 unless you have read docs/deployment.md on worker scale-out.
+  replicas: 1
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 4Gi
+  cacheVolume:
+    sizeLimit: 20Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: shoal.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+metrics:
+  # Adds prometheus.io scrape annotations to API pods.
+  annotations: true

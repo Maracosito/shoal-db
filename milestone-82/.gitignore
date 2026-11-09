@@ -1,0 +1,15 @@
+/target
+**/target
+Cargo.lock.bak
+*.swp
+.DS_Store
+.idea/
+.vscode/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.venv/
+/data
+/.minio-data
+.env

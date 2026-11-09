@@ -1,0 +1,80 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-e2e:
+    name: SDK e2e against Compose stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Consumed by the SDK e2e suites.
+      SHOAL_E2E_URL: http://localhost:8080
+      SHOAL_E2E_API_KEY: dev-root-key
+      # Consumed by deploy/docker/docker-compose.yml as the bootstrap API key.
+      SHOAL_API_KEY: dev-root-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the stack (API, worker, MinIO)
+        run: docker compose -f deploy/docker/docker-compose.yml up -d --build
+
+      - name: Wait for the API to become healthy
+        run: |
+          set -u
+          for i in $(seq 1 180); do
+            if curl -fsS "$SHOAL_E2E_URL/healthz" >/dev/null 2>&1; then
+              echo "API healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::API never became healthy"
+          docker compose -f deploy/docker/docker-compose.yml ps
+          docker compose -f deploy/docker/docker-compose.yml logs --tail=200
+          exit 1
+
+      # ----- Python SDK e2e -----
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python e2e dependencies
+        working-directory: e2e/python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Python SDK e2e suite
+        working-directory: e2e/python
+        run: python -m pytest -v
+
+      # ----- TypeScript SDK e2e -----
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install TypeScript e2e dependencies
+        working-directory: e2e/typescript
+        run: npm install
+
+      - name: Run TypeScript SDK e2e suite
+        working-directory: e2e/typescript
+        run: npm test
+
+      # ----- Diagnostics & teardown -----
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker compose -f deploy/docker/docker-compose.yml logs --tail=500
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f deploy/docker/docker-compose.yml down -v

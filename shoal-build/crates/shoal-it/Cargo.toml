@@ -1,0 +1,25 @@
+[package]
+name = "shoal-it"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Integration-test suite for Shoal: full API surface, branching, cache hierarchy, and MinIO-backed runs."
+license = "Apache-2.0"
+
+[dependencies]
+shoal-server = { path = "../shoal-server" }
+shoal-core = { path = "../shoal-core" }
+shoal-cache = { path = "../shoal-cache" }
+
+anyhow = "1"
+axum = "0.7"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+
+[lib]
+path = "src/lib.rs"

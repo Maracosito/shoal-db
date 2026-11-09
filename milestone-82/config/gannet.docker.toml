@@ -1,0 +1,18 @@
+# Gannet server configuration used inside the Docker Compose dev stack.
+# Credentials come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY set on the
+# container (see docker-compose.yml); they are never stored in this file.
+
+[server]
+listen = "0.0.0.0:8080"
+
+[log]
+level = "info"
+format = "json"
+
+[storage]
+backend = "s3"
+bucket = "gannet-dev"
+prefix = ""
+region = "us-east-1"
+endpoint = "http://minio:9000"
+force_path_style = true

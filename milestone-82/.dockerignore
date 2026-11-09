@@ -1,0 +1,6 @@
+target/
+gannet-data/
+.git/
+*.md
+clients/
+demos/

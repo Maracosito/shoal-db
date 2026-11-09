@@ -1,0 +1,35 @@
+# Environment & secrets
+.env
+**/.env
+*.env.local
+
+# Rust build artifacts
+target/
+**/target/
+
+# Node / TypeScript
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+**/.venv/
+*.egg-info/
+**/*.egg-info/
+.pytest_cache/
+**/.pytest_cache/
+.ruff_cache/
+**/.ruff_cache/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

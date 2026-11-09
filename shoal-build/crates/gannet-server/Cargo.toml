@@ -1,0 +1,37 @@
+[package]
+name = "gannet-server"
+description = "Gannet HTTP API server: stateless query/write front-end for the Gannet search database"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "gannet_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gannet-server"
+path = "src/main.rs"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+prometheus = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+http = { workspace = true }
+http-body-util = { workspace = true }

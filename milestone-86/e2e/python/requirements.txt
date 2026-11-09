@@ -1,0 +1,9 @@
+# Dependencies for the live-server end-to-end suite.
+# Run `pip install -r requirements.txt` from inside e2e/python so the
+# editable SDK path below resolves correctly.
+pytest>=8,<9
+pytest-asyncio>=0.23,<0.26
+httpx>=0.26,<1
+
+# The SDK under test, installed from the repo in editable mode.
+-e ../../sdks/python

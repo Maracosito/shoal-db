@@ -1,0 +1,42 @@
+# Test-only infrastructure for Reef's S3 integration suites.
+#
+# Usage (preferred): scripts/run-minio-tests.sh
+#
+# Manual usage:
+#   docker compose -f deploy/docker-compose.test.yml up -d --wait minio
+#   docker compose -f deploy/docker-compose.test.yml run --rm minio-init
+#   export REEF_TEST_S3_ENDPOINT=http://127.0.0.1:9000
+#   export REEF_TEST_S3_BUCKET=reef-test
+#   export REEF_TEST_S3_ACCESS_KEY=reefadmin
+#   export REEF_TEST_S3_SECRET_KEY=reefsecret
+#   cargo test -p reef-store --test conformance s3
+#   cargo test -p reef-engine --test minio_integration
+
+services:
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: reefadmin
+      MINIO_ROOT_PASSWORD: reefsecret
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console (handy for debugging test runs)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  # One-shot job that creates the test bucket and exits.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 reefadmin reefsecret &&
+        mc mb --ignore-existing local/reef-test &&
+        echo 'bucket reef-test ready'
+      "

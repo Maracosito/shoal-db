@@ -1,0 +1,17 @@
+[package]
+name = "shoal-query"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Query engine for Shoal: exact kNN and IVF ANN vector search, BM25 full-text, metadata filters, hybrid fusion, and a query planner."
+repository = "https://github.com/shoal-db/shoal"
+keywords = ["search", "vector", "bm25", "ann", "ivf"]
+categories = ["database-implementations"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+roaring = "0.10"
+rand = "0.8"
+crc32fast = "1"

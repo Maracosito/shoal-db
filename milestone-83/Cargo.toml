@@ -1,0 +1,67 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/reef-types",
+    "crates/reef-store",
+    "crates/reef-engine",
+    "crates/reef-cli",
+]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/reefdb/reef"
+authors = ["Reef contributors"]
+rust-version = "1.75"
+
+[workspace.dependencies]
+# internal crates
+reef-types = { path = "crates/reef-types" }
+reef-store = { path = "crates/reef-store" }
+reef-engine = { path = "crates/reef-engine" }
+
+# async runtime & utilities
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# data plumbing
+bytes = "1"
+crc32fast = "1"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+hex = "0.4"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# errors & logging
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# concurrency
+parking_lot = "0.12"
+
+# s3 backend
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+hmac = "0.12"
+sha2 = "0.10"
+quick-xml = "0.36"
+rand = "0.8"
+
+# cli
+clap = { version = "4", features = ["derive", "env"] }
+
+# testing
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.bench]
+debug = true

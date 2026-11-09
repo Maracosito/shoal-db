@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: unit + filesystem integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: run workspace tests (memory + local filesystem stores)
+        run: cargo test --workspace --all-targets
+
+  minio:
+    name: MinIO / S3 integration tests
+    runs-on: ubuntu-latest
+    services:
+      minio:
+        # bitnami/minio starts the server and pre-creates buckets from env,
+        # which is required because GitHub service containers cannot override
+        # the image command (the upstream minio/minio image needs `server`).
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: reefadmin
+          MINIO_ROOT_PASSWORD: reefsecret
+          MINIO_DEFAULT_BUCKETS: reef-test
+        ports:
+          - 9000:9000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: wait for MinIO to become healthy
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              echo "MinIO is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO never became healthy" >&2
+          exit 1
+      - name: reef-store conformance suite against MinIO
+        env:
+          REEF_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          REEF_TEST_S3_BUCKET: reef-test
+          REEF_TEST_S3_REGION: us-east-1
+          REEF_TEST_S3_ACCESS_KEY: reefadmin
+          REEF_TEST_S3_SECRET_KEY: reefsecret
+        run: cargo test -p reef-store --test conformance s3 -- --nocapture
+      - name: reef-engine integration suite against MinIO
+        env:
+          REEF_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          REEF_TEST_S3_BUCKET: reef-test
+          REEF_TEST_S3_REGION: us-east-1
+          REEF_TEST_S3_ACCESS_KEY: reefadmin
+          REEF_TEST_S3_SECRET_KEY: reefsecret
+        run: cargo test -p reef-engine --test minio_integration -- --nocapture

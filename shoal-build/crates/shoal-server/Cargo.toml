@@ -1,0 +1,53 @@
+[package]
+name = "shoal-server"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Shoal API server: HTTP layer, auth, caching, branching, observability"
+
+[dependencies]
+shoal-core = { path = "../shoal-core" }
+shoal-cache = { path = "../shoal-cache" }
+
+# HTTP stack
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["trace", "timeout"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bytes = "1"
+
+# Async utilities
+futures = "0.3"
+async-stream = "0.3"
+
+# Misc
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+parking_lot = "0.12"
+thiserror = "1"
+anyhow = "1"
+toml = "0.8"
+
+# Auth / hashing
+sha2 = "0.10"
+subtle = "2"
+hex = "0.4"
+rand = "0.8"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+prometheus = "0.13"
+opentelemetry = "0.24"
+opentelemetry_sdk = { version = "0.24", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.17"
+tracing-opentelemetry = "0.25"
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.4", features = ["util"] }
+http-body-util = "0.1"
+reqwest = { version = "0.12", features = ["json"] }

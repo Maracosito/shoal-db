@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shoal-worker
+  namespace: shoal
+  labels:
+    app.kubernetes.io/name: shoal
+    app.kubernetes.io/component: worker
+spec:
+  # Run a single worker. Background indexing and compaction coordinate
+  # through object-storage manifests; a single worker is the simplest safe
+  # configuration. Scale out only after reading docs/deployment.md.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shoal
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shoal
+        app.kubernetes.io/component: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: worker
+          image: ghcr.io/shoal-db/shoal:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["shoal-worker"]
+          envFrom:
+            - configMapRef:
+                name: shoal-config
+            - secretRef:
+                name: shoal-credentials
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 4Gi
+          volumeMounts:
+            - name: cache
+              mountPath: /var/cache/shoal
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: cache
+          emptyDir:
+            sizeLimit: 20Gi

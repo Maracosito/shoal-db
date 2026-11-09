@@ -1,0 +1,28 @@
+Shoal {{ .Chart.AppVersion }} has been deployed.
+
+API service:
+  {{ include "shoal.fullname" . }}-api.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+
+Try it locally:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "shoal.fullname" . }}-api {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl -H "Authorization: Bearer <your root API key>" http://localhost:{{ .Values.service.port }}/healthz
+
+{{- if not .Values.auth.existingSecret }}
+
+Your root API key was rendered into the Secret
+"{{ include "shoal.secretName" . }}". For production, prefer
+auth.existingSecret with an externally managed Secret.
+{{- end }}
+
+{{- if not .Values.ingress.enabled }}
+
+No ingress was created (ingress.enabled=false). The API is reachable only
+inside the cluster or via port-forward.
+{{- end }}
+
+Durable state lives entirely in the configured S3 bucket
+("{{ .Values.config.s3.bucket }}"). Pods are stateless: caches are
+ephemeral and rebuilt from object storage on restart.
+
+Documentation: docs/deployment.md in the Shoal repository.

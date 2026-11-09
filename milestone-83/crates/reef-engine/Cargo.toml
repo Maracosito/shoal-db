@@ -1,0 +1,30 @@
+[package]
+name = "reef-engine"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Object-storage-native storage engine for Reef: WAL, segments, compaction, recovery"
+repository = "https://github.com/reef-search/reef"
+
+[dependencies]
+reef-types = { path = "../reef-types" }
+reef-store = { path = "../reef-store" }
+
+async-trait = "0.1"
+bincode = "1"
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+crc32fast = "1"
+futures = "0.3"
+hex = "0.4"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time", "fs", "io-util"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

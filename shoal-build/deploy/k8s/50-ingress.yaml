@@ -1,0 +1,27 @@
+# Optional ingress. Adjust host, class, and TLS for your environment.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shoal-api
+  namespace: shoal
+  labels:
+    app.kubernetes.io/name: shoal
+  annotations:
+    # Example for cert-manager:
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: shoal.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: shoal-api
+                port:
+                  name: http
+  # tls:
+  #   - hosts: [shoal.example.com]
+  #     secretName: shoal-tls

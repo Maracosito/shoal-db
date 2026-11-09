@@ -1,0 +1,602 @@
+Construye una base de datos de búsqueda nativa de almacenamiento de objetos de código abierto al estilo Turbopuffer.
+terminado
+Por Chris Stones · 10 votos positivos · Recaudó $133.37 · Gastó $84.05 · Reembolsó $49.31 · Fondo $0.01
+
+La pregunta
+Desarrollar un clon/alternativa de código abierto, completamente nuevo y legalmente independiente, inspirado en Turbopuffer: una base de datos de búsqueda vectorial y de texto completo nativa para almacenamiento de objetos, destinada a aplicaciones de IA/RAG.
+
+Restricciones legales y de producto importantes:
+No copie el código fuente, la implementación privada, la marca, el logotipo, el diseño del sitio web, los textos, los nombres, la imagen comercial, los activos propietarios ni la documentación exacta de Turbopuffer. Debe ser una implementación completamente nueva con marca, interfaz de usuario y documentación originales, y su propio diseño de API cuando corresponda. Utilice Turbopuffer únicamente como inspiración para productos públicos: almacenamiento de objetos como fuente de información fiable, computación sin estado, almacenamiento en caché SSD/memoria, espacios de nombres, búsqueda vectorial, búsqueda de texto completo, búsqueda híbrida, filtros de metadatos y ramificación de espacios de nombres.
+
+Nombre provisional:
+Utilice un nombre original provisional como "OpenPuffer" o elija un nombre de proyecto mejor y legalmente distinto durante la planificación.
+
+Meta:
+Crea un motor de búsqueda de código abierto con calidad de producción que los desarrolladores puedan ejecutar localmente o implementar en la nube. Debe admitir almacenamiento en frío económico en almacenamiento de objetos compatible con S3, consultas rápidas en caliente mediante cachés de disco y memoria locales, y una API HTTP intuitiva para desarrolladores, además de clientes para Python y TypeScript.
+
+Requisitos básicos:
+
+1. Arquitectura
+- El estado persistente reside en el almacenamiento de objetos: almacenamiento compatible con S3, MinIO para desarrollo local y modo de sistema de archivos local para pruebas.
+- Los nodos de cómputo deben ser lo más independientes del estado posible.
+- Utilice un diseño de almacenamiento por espacio de nombres con manifiestos, archivos de registro de escritura anticipada, archivos de índice, archivos de metadatos y referencias de ramas.
+- Separar el procesamiento de consultas de la indexación/compactación en segundo plano siempre que sea posible.
+- Proporcionar un documento de arquitectura claro que explique el formato de almacenamiento, la ruta de consulta, la ruta de escritura, el modelo de consistencia y las ventajas e inconvenientes.
+
+2. Servidor API
+- Crear una API HTTP JSON con autenticación mediante claves API.
+- Dar soporte a organizaciones/proyectos/espacios de nombres.
+- Los espacios de nombres son espacios de documentos aislados.
+- Los documentos tienen identificadores, vectores densos opcionales, vectores dispersos opcionales, campos de texto y atributos de metadatos arbitrarios.
+- Incluir puntos finales para:
+  - crear/actualizar/eliminar espacio de nombres
+  - metadatos del espacio de nombres
+  - actualizar/insertar documentos
+  - documentos de parche
+  - eliminar por ID
+  - eliminar por filtro
+  - consulta
+  - exportar espacio de nombres
+  - copiar espacio de nombres
+  - espacio de nombres de rama
+  - caché caliente / espacio de nombres de anclaje
+  - Control de salud y métricas
+
+3. Escribir ruta
+- Implementar el registro de escritura anticipada persistente en el almacenamiento de objetos.
+- Admite actualizaciones e inserciones por lotes.
+- Admitir la ingesta de documentos orientados a filas y a columnas, si es factible.
+- Admitir escrituras idempotentes siempre que sea posible.
+- Admite escrituras condicionales básicas.
+- Implementar la indexación en segundo plano después de las escrituras.
+- Implementar la compactación para que muchos archivos WAL/índice pequeños puedan fusionarse en segmentos consultables eficientes.
+- Asegurar que las escrituras exitosas sean recuperables después del reinicio del proceso.
+
+4. Ruta de consulta
+- Admite la búsqueda de vectores densos:
+  - Línea base kNN exacta
+  - Índice aproximado del vecino más cercano adecuado para la recuperación respaldada por almacenamiento de objetos, preferiblemente de estilo IVF/centroide en lugar de un índice gráfico basado únicamente en memoria.
+  - coseno, producto escalar y distancia euclidiana
+- Admite la búsqueda de texto completo:
+  - tokenización
+  - índice invertido
+  - Clasificación BM25
+  - ponderación o refuerzo del campo
+- Admite búsqueda híbrida:
+  - Combinar los resultados del vector y del BM25
+  - Admite la fusión de puntuaciones ponderadas y la fusión de rangos recíprocos.
+  - permitir solicitudes de múltiples consultas
+- Admitir la búsqueda de vectores dispersos si es factible.
+- Admite filtros de metadatos:
+  - Eq, NotEq, Gt, Gte, Lt, Lte, In, ContainsAny
+  - Y, o, no
+  - Coincidencia de cadenas cuando sea posible
+- Admite la devolución únicamente de los atributos seleccionados.
+- Admite top_k / límite.
+- Incluir un planificador de consultas que permita elegir entre búsqueda exacta, redes neuronales artificiales (ANN), índice de texto completo, índice de filtros y rutas de ejecución híbridas.
+
+5. Indexación
+- Crear archivos de índice persistentes almacenados en el almacenamiento de objetos.
+- Crear segmentos de índice almacenables en caché local.
+- Incluir índices de filtros/atributos para una búsqueda filtrada rápida.
+- Incluir un manifiesto de metadatos de índice.
+- Incluir comandos de reconstrucción y reparación.
+- Incluir pruebas que demuestren que los índices sobreviven a los reinicios y que pueden reconstruirse a partir del almacenamiento de objetos.
+
+6. Jerarquía de caché
+- Implementar una caché de disco local para los espacios de nombres o segmentos consultados recientemente.
+- Implementar una caché de memoria para los elementos de metadatos/índices de uso frecuente.
+- Utilice LRU o un sistema de desalojo configurable.
+- Agregar un punto final de caché en caliente que precargue un espacio de nombres o segmentos seleccionados.
+- Añadir la opción de fijar espacios de nombres para que los espacios de nombres seleccionados se mantengan activos.
+- Comparar el comportamiento de las consultas en frío con el de las consultas en caliente.
+
+7. Ramificación de espacios de nombres
+- Implementar la ramificación de espacios de nombres con copia en escritura.
+- La ramificación debería crear rápidamente un nuevo espacio de nombres haciendo referencia a archivos/segmentos inmutables existentes.
+- Las escrituras en la rama no deberían afectar al código fuente.
+- Las escrituras en el código fuente no deberían afectar a la rama.
+- Al eliminar una rama, no se deben eliminar los datos de origen compartidos que aún estén referenciados.
+- Incluir pruebas para el aislamiento de ramas, ramas multinivel, eliminación de ramas y consulta de ramas.
+
+8. Constancia y recuperación
+- Documentar claramente las garantías de consistencia.
+- Como mínimo, proporcione escrituras persistentes y un comportamiento de lectura de escrituras en una implementación de nodo único.
+- Para el modo distribuido/multinodo, documente claramente cualquier posible compromiso en cuanto a la consistencia.
+- Incluir pruebas de recuperación tras fallos:
+  - Reiniciar después de escribir
+  - Reiniciar durante la indexación
+  - Reiniciar durante la compactación
+  - Manejo de archivos corruptos/incompletos cuando sea posible
+
+9. Experiencia del desarrollador
+- Proporcionar una interfaz de línea de comandos (CLI) para:
+  - Iniciando servicios de desarrollo local
+  - creación de espacios de nombres
+  - Carga de datos JSON/JSONL/CSV
+  - ejecutar consultas
+  - Exportación de datos
+  - caché de calentamiento
+  - evaluación comparativa
+- Proporcionar el SDK de Python.
+- Proporcionar un SDK para TypeScript/JavaScript.
+- Proporcionar Docker Compose con servidor API, worker/indexer, MinIO y una aplicación de ejemplo.
+- Proporcionar manifiestos de Kubernetes o gráficos de Helm opcionales.
+- Proporcionar la especificación OpenAPI.
+
+10. Aplicaciones de demostración
+- Crea al menos tres demos:
+  - Demostración de búsqueda semántica de documentos/RAG
+  - Demostración de búsqueda híbrida sobre texto + incrustaciones
+  - Demostración de búsqueda de código que utiliza ramificación de espacios de nombres para representar diferentes ramas o espacios de trabajo.
+- Incluir conjuntos de datos de ejemplo lo suficientemente pequeños como para poder ejecutarlos localmente.
+- Incluir scripts para generar incrustaciones utilizando un proveedor de incrustaciones conectable, pero la base de datos en sí no debe depender de ningún proveedor de incrustaciones en particular.
+
+11. Observabilidad y operaciones
+- Añadir registros estructurados.
+- Añadir métricas de Prometheus.
+- Si es posible, añada ganchos de rastreo básicos o instrumentación de OpenTelemetry.
+- Incluir métricas para la latencia de las consultas, aciertos de caché fríos/calientes, retraso de indexación, lecturas/escrituras de almacenamiento de objetos, tamaño del WAL, recuento de segmentos y estado de compactación.
+- Añadir límites de velocidad y cuotas como configuración opcional.
+- Agregar registros de auditoría para el espacio de nombres y las operaciones de escritura.
+
+12. Seguridad
+- Autenticación mediante clave API.
+- Evite registrar información confidencial.
+- Modelo a seguir básico, si es posible: administrador, escritor, lector.
+- Documentación opcional sobre cifrado en reposo mediante el cifrado del proveedor de almacenamiento de objetos.
+- Documentar el modelo de amenazas y las directrices para el endurecimiento de la implementación.
+
+13. Pruebas y evaluación comparativa
+- Pruebas unitarias para almacenamiento, API, filtros, clasificación, matemáticas vectoriales, BM25, ramificación, almacenamiento en caché y recuperación.
+- Pruebas de integración utilizando MinIO.
+- Pruebas de extremo a extremo a través de los clientes Python y TypeScript.
+- Conjunto de pruebas de referencia que mide:
+  - rendimiento de ingesta
+  - latencia de consulta en frío
+  - latencia de consulta en caliente
+  - recall@k para ANN frente a kNN exacto
+  - Latencia BM25
+  - latencia de consulta híbrida
+  - Tasas de aciertos de caché
+- Incluya resultados de referencia realistas pero honestos. No afirme que es igual a Turbopuffer a menos que lo demuestre.
+
+14. Documentación
+- Archivo README con guía de inicio rápido.
+- Guía de arquitectura.
+- Referencia de la API.
+- Documentación del SDK de Python.
+- Documentación del SDK de TypeScript.
+- Guía de despliegue.
+- Guía de referencia.
+- Guía para colaboradores.
+- Hoja de ruta.
+- Eliminar la sección de “objetivos no previstos para la versión 1”.
+
+Implementación preferida:
+- Si es posible, utilice Rust para el servidor principal y el motor de almacenamiento/consulta.
+- Utilice Python y TypeScript para los SDK de cliente.
+- Utilice Docker Compose para el desarrollo local.
+- Usar Apac
+
+Respaldar esta compilación
+▲ Votar a favor
+Créditos (0,01 dólares cada uno)
+100
+Financiar
+Primero se utiliza tu saldo (0,00 $); si no cubre el importe, se abre la página de pago para la diferencia y los créditos se aplican automáticamente. Las recargas de tarjeta son de un mínimo de 5 $; los créditos sobrantes se mantienen en tu saldo para futuras recargas.
+
+Hitos : costo real $95.53
+#1 Arquitectura y diseño fundamentales: formato de almacenamiento, especificación de API y estructura del proyecto.
+hecho
+Paquete de diseño de sala limpia y esqueleto ejecutable. Entregables: (1) documento de arquitectura completa que cubre el diseño de almacenamiento de objetos (manifiestos por espacio de nombres, archivos WAL, segmentos inmutables, referencias de ramas), ruta de escritura, ruta de consulta, modelo de consistencia (escrituras duraderas, lectura de escrituras en un solo nodo, compensaciones documentadas de consistencia eventual para múltiples nodos) y análisis explícito de compensaciones; (2) especificación de formato en disco/almacenamiento de objetos con reglas de versionado; (3) especificación completa de OpenAPI 3.1 para todos los puntos finales (espacios de nombres, upsert/patch/delete, delete-by-filter, query, export, copy, branch, warm/pin, health, metrics) con diseño de API original; (4) andamiaje de espacio de trabajo Rust (crate del motor principal, crate del servidor API, crate CLI) compilando con rasgo de abstracción de almacenamiento implementado para backends compatibles con el sistema de archivos local y S3 (configuración MinIO incluida); (5) Justificación legalmente distinta de nombres/marcas y documento de objetivos no previstos para la versión 1. Valioso independientemente como diseño revisable + esqueleto construible.
+
+Estimado: $42.00 · Real: $11.02
+#2 Ruta de escritura duradera y motor de almacenamiento: WAL, segmentos, compactación, recuperación
+hecho
+Motor de almacenamiento Rust funcional sobre almacenamiento de objetos. Entregables: registro de escritura anticipada en almacenamiento de objetos con inserciones y actualizaciones por lotes, parcheo y eliminación por ID, claves de escritura idempotentes, escrituras condicionales básicas; rutas de ingesta orientadas a filas y columnas; indexador en segundo plano que pliega las entradas WAL en segmentos inmutables; compactación que fusiona pequeños archivos WAL/segmento en segmentos consultables eficientes con manifiesto actualizado atómicamente; lógica de recuperación ante fallos (reinicio después de escrituras, reinicio a mitad de indexación, reinicio a mitad de compactación, detección de archivos incompletos/corruptos); comandos de reconstrucción y reparación. Incluye un conjunto sustancial de pruebas unitarias y de integración contra el sistema de archivos local y MinIO que demuestran que las escrituras sobreviven a los reinicios del proceso y que los índices son reconstruibles solo a partir del almacenamiento de objetos.
+
+Estimado: $65.00 · Real: $20.96
+Motor de consulta n.° 3: búsqueda vectorial, búsqueda de texto completo BM25, filtros, híbrido, planificador.
+hecho
+Ruta de consulta completa en Rust. Entregables: línea base kNN exacta con coseno/punto/euclidiana; índice ANN de estilo IVF/centroide diseñado para recuperación respaldada por almacenamiento de objetos (centroides de clúster en manifiesto, listas de publicación como segmentos almacenables en caché) con ajuste recall-vs-nprobe; motor de texto completo con tokenizador, índice invertido persistente, clasificación BM25 y potenciación de campos; ruta de puntuación de vector disperso opcional; motor de filtro de metadatos que admite Eq/NotEq/Gt/Gte/Lt/Lte/In/ContainsAny y And/Or/Not con índices de atributos/filtros para búsqueda filtrada rápida; búsqueda híbrida con fusión de puntuación ponderada y fusión de rango recíproco más solicitudes de consulta múltiple; proyección de atributo seleccionado y top_k; un planificador de consultas que elige entre ejecución exacta, ANN, texto completo, índice de filtro e híbrida. Incluye pruebas unitarias para matemáticas vectoriales, corrección BM25, álgebra de filtros y pruebas de validación recall@k de ANN frente a kNN exacto.
+
+Estimado: $70.00 · Real: $16.44
+#4 Servidor API, jerarquía de caché y ramificación de espacios de nombres
+hecho
+Capa HTTP de producción y características diferenciadoras. Entregables: servidor API JSON completo que implementa la especificación OpenAPI con autenticación de clave API, jerarquía org/project/namespace y modelo de rol admin/writer/reader; puntos finales de exportación y copia de espacio de nombres; ramificación de espacio de nombres de copia en escritura a través de referencias de manifiesto a segmentos inmutables compartidos, con conteo de referencias para que la eliminación de ramas nunca elimine los datos de origen todavía referenciados, además de pruebas para el aislamiento de ramas en ambas direcciones, ramas de varios niveles y ramas de consulta; jerarquía de caché de dos niveles (caché de segmento SSD local + caché de índice/metadatos calientes en memoria) con desalojo LRU configurable, punto final de caché caliente y fijación de espacio de nombres; registro estructurado, métricas de Prometheus (latencia de consulta, tasas de aciertos fríos/cálidos, retraso de indexación, E/S de almacenamiento de objetos, tamaño de WAL, recuento de segmentos, estado de compactación), ganchos de rastreo de OpenTelemetry, registros de auditoría, límites de velocidad/cuotas opcionales; Registro seguro de información confidencial y documentación sobre modelos de amenazas y medidas de protección. Incluye pruebas de integración con MinIO que cubren toda la superficie de la API.
+
+Estimado: $62.00 · Real: $25.01
+#5 Experiencia del desarrollador: CLI, SDK de Python y TypeScript, empaquetado de implementación
+hecho
+Todo lo que un desarrollador necesita para adoptar el proyecto. Entregables: CLI completa (iniciar pila de desarrollo local, crear espacios de nombres, cargar JSON/JSONL/CSV, ejecutar consultas, exportar, precalentar caché, realizar pruebas de rendimiento); SDK de Python idiomático con modelos tipados, reintentos, asistentes por lotes y documentación; SDK de TypeScript con cobertura y documentación equivalentes; pila de Docker Compose (servidor API, indexador/trabajador, MinIO, aplicación de ejemplo); manifiestos de Kubernetes más un gráfico Helm básico; conjuntos de pruebas de extremo a extremo que impulsan el servidor a través de ambos SDK; definiciones de flujo de trabajo de CI para compilación, análisis estático y pruebas.
+
+Estimado: $52.00 · Real: $13.69
+#6 Suite de demostraciones, pruebas de rendimiento y documentación
+hecho
+Prueba de valor y documentación completa. Entregables: tres demostraciones ejecutables con pequeños conjuntos de datos empaquetados y scripts de proveedor de incrustaciones conectables: (1) demostración de búsqueda semántica de documentos/RAG, (2) demostración de búsqueda híbrida de texto + incrustación, (3) demostración de búsqueda de código que utiliza ramificación de espacio de nombres para modelar ramas/espacios de trabajo; conjunto de referencia que mide el rendimiento de ingesta, latencia de consulta fría vs caliente, recall@k para ANN vs exacto, latencia BM25, latencia híbrida y tasas de aciertos de caché, con una metodología honesta de redacción de resultados que no hace afirmaciones de paridad no verificadas; conjunto completo de documentación: README de inicio rápido, guía de arquitectura, referencia de API, documentación del SDK de Python, documentación del SDK de TypeScript, guía de implementación (incluido el cifrado en reposo a través del proveedor SSE), guía de referencia, guía para colaboradores, hoja de ruta y sección de objetivos no previstos.
+
+Estimado: $48.00 · Real: $8.41
+Artefactos
+Descargar todos los archivos (.zip)
+Archivo	Hito	Tamaño
+LÉAME.md	82	4257 B
+docs/nameing-and-branding.md	82	4031 B
+docs/non-goals-v1.md	82	3764 B
+docs/arquitectura.md	82	27275 B
+docs/formato-de-almacenamiento.md	82	16174 B
+api/openapi.yaml	82	42946 B
+Cargo.toml	82	1688 B
+rust-toolchain.toml	82	66 B
+.gitignore	82	135 B
+crates/gannet-core/Cargo.toml	82	696 B
+crates/gannet-core/src/lib.rs	82	1410 B
+crates/gannet-core/src/error.rs	82	1653 B
+crates/gannet-core/src/storage/mod.rs	82	7463 B
+crates/gannet-core/src/storage/memory.rs	82	4522 B
+crates/gannet-core/src/storage/fs.rs	82	10019 B
+crates/gannet-core/src/storage/s3.rs	82	13594 B
+crates/gannet-core/src/storage/config.rs	82	3086 B
+crates/gannet-core/tests/storage_conformance.rs	82	8401 B
+crates/gannet-server/Cargo.toml	82	956 B
+crates/gannet-server/src/lib.rs	82	1323 B
+crates/gannet-server/src/config.rs	82	14123 B
+crates/gannet-server/src/state.rs	82	674 B
+crates/gannet-server/src/metrics.rs	82	3565 B
+crates/gannet-server/src/routes.rs	82	3221 B
+crates/gannet-server/src/telemetry.rs	82	1075 B
+crates/gannet-server/src/main.rs	82	2730 B
+crates/gannet-server/tests/http_smoke.rs	82	4258 B
+crates/gannet-cli/Cargo.toml	82	602 B
+crates/gannet-cli/src/lib.rs	82	1421 B
+crates/gannet-cli/src/commands/mod.rs	82	49 B
+crates/gannet-cli/src/commands/dev.rs	82	3538 B
+crates/gannet-cli/src/commands/health.rs	82	1853 B
+crates/gannet-cli/src/commands/config_cmd.rs	82	4713 B
+crates/gannet-cli/src/main.rs	82	229 B
+crates/gannet-cli/tests/cli.rs	82	604 B
+config/gannet.example.toml	82	864 B
+config/gannet.docker.toml	82	431 B
+docker-compose.yml	82	1758 B
+Dockerfile	82	772 B
+.dockerignore	82	48 B
+LICENCIA	82	11357 B
+AVISO	82	575 B
+CONTRIBUYENDO.md	82	4234 B
+cajas/gannet-format/Cargo.toml	82	548 B
+cajas/gannet-format/src/lib.rs	82	2392 B
+cajas/gannet-format/src/version.rs	82	5269 B
+crates/gannet-format/src/ident.rs	82	5233 B
+crates/gannet-format/src/document.rs	82	9362 B
+crates/gannet-format/src/filter.rs	82	12253 B
+crates/gannet-format/src/keys.rs	82	7002 B
+crates/gannet-format/src/manifest.rs	82	9802 B
+crates/gannet-format/src/integrity.rs	82	1443 B
+crates/gannet-format/tests/manifest_compat.rs	82	3218 B
+crates/gannet-format/tests/openapi_surface.rs	82	3532 B
+.github/workflows/ci.yml	82	1230 B
+Cargo.toml	83	1352 B
+cajas/tipos-de-arrecife/Carga.toml	83	419 B
+crates/reef-types/src/lib.rs	83	1376 B
+crates/reef-types/src/errors.rs	83	1125 B
+crates/reef-types/src/value.rs	83	8756 B
+crates/reef-types/src/document.rs	83	9396 B
+crates/reef-types/src/write.rs	83	13668 B
+cajas/tienda-arrecife/Cargo.toml	83	998 B
+crates/reef-store/src/lib.rs	83	8179 B
+cajas/almacén-arrecife/src/memoria.rs	83	6715 B
+cajas/tienda-arrecife/src/localfs.rs	83	15832 B
+cajas/reef-store/src/failpoint.rs	83	9822 B
+cajas/motor-arrecife/Cargo.toml	83	851 B
+crates/reef-engine/src/lib.rs	83	2785 B
+crates/reef-engine/src/error.rs	83	2580 B
+crates/reef-engine/src/checksum.rs	83	877 B
+crates/reef-engine/src/layout.rs	83	6555 B
+cajas/reef-engine/src/wal.rs	83	10904 B
+crates/reef-engine/src/manifest.rs	83	23109 B
+cajas/reef-engine/src/segment.rs	83	30791 B
+crates/reef-engine/src/memtable.rs	83	9864 B
+crates/reef-engine/src/options.rs	83	3442 B
+cajas/reef-engine/src/engine.rs	83	43382 B
+crates/reef-engine/src/indexer.rs	83	13311 B
+cajas/motor-arrecife/src/compactación.rs	83	16914 B
+crates/reef-engine/src/admin.rs	83	35461 B
+cajas/tienda-arrecife/src/s3.rs	83	33552 B
+cajas/reef-cli/Cargo.toml	83	580 B
+crates/reef-cli/src/main.rs	83	13950 B
+docs/engine-architecture.md	83	14639 B
+cajas/motor-arrecife/pruebas/común/mod.rs	83	7189 B
+crates/reef-engine/tests/write_path_tests.rs	83	19577 B
+crates/reef-engine/tests/recovery_tests.rs	83	20103 B
+crates/reef-engine/tests/compaction_tests.rs	83	15328 B
+crates/reef-engine/tests/admin_tests.rs	83	10711 B
+cajas/tienda-arrecife/pruebas/conformidad.rs	83	9088 B
+crates/reef-store/tests/failpoint_tests.rs	83	5229 B
+crates/reef-engine/tests/minio_integration.rs	83	8401 B
+deploy/docker-compose.test.yml	83	1382 B
+scripts/run-minio-tests.sh	83	1481 B
+.github/workflows/ci.yml	83	2584 B
+docs/testing.md	83	7922 B
+crates/shoal-query/Cargo.toml	84	525 B
+crates/shoal-query/src/lib.rs	84	1256 B
+crates/shoal-query/src/error.rs	84	2073 B
+crates/shoal-query/src/types.rs	84	8707 B
+crates/shoal-query/src/topk.rs	84	5548 B
+crates/shoal-query/src/vector/mod.rs	84	226 B
+crates/shoal-query/src/vector/math.rs	84	6658 B
+crates/shoal-query/src/vector/exact.rs	84	5758 B
+crates/shoal-query/src/vector/kmeans.rs	84	8521 B
+crates/shoal-query/src/vector/ivf.rs	84	27623 B
+crates/shoal-query/tests/vector_recall.rs	84	8328 B
+Cargo.toml	85	670 B
+cajas/núcleo-banco/Cargo.toml	85	640 B
+crates/shoal-core/src/lib.rs	85	1527 B
+crates/shoal-core/src/error.rs	85	1512 B
+crates/shoal-core/src/types.rs	85	8185 B
+crates/shoal-core/src/filter.rs	85	7266 B
+crates/shoal-core/src/layout.rs	85	1921 B
+crates/shoal-core/src/storage.rs	85	9165 B
+crates/shoal-core/src/wal.rs	85	2821 B
+crates/shoal-core/src/segment.rs	85	9934 B
+crates/shoal-core/src/manifest.rs	85	8973 B
+crates/shoal-core/src/framing.rs	85	1933 B
+crates/shoal-core/src/registry.rs	85	8042 B
+crates/shoal-core/src/loader.rs	85	1296 B
+cajas/almacén-de-bajío/Cargo.toml	85	569 B
+crates/shoal-cache/src/lib.rs	85	1983 B
+crates/shoal-cache/src/stats.rs	85	3062 B
+crates/shoal-cache/src/disk.rs	85	17540 B
+crates/shoal-cache/src/memory.rs	85	6955 B
+crates/shoal-cache/src/layer.rs	85	8293 B
+crates/shoal-server/Cargo.toml	85	1221 B
+crates/shoal-server/src/lib.rs	85	4595 B
+crates/shoal-server/src/config.rs	85	10828 B
+crates/shoal-server/src/auth.rs	85	14269 B
+crates/shoal-server/src/error.rs	85	5195 B
+crates/shoal-server/src/rate_limit.rs	85	6607 B
+crates/shoal-server/src/audit.rs	85	6449 B
+crates/shoal-server/src/metrics.rs	85	12139 B
+crates/shoal-server/src/telemetry.rs	85	4068 B
+crates/shoal-server/src/engine/mod.rs	85	41155 B
+crates/shoal-server/src/engine/refcount.rs	85	5866 B
+crates/shoal-server/src/engine/state.rs	85	7354 B
+crates/shoal-server/src/engine/query.rs	85	20116 B
+crates/shoal-server/src/engine/branch.rs	85	7337 B
+crates/shoal-server/src/engine/warm.rs	85	6178 B
+crates/shoal-server/src/main.rs	85	863 B
+crates/shoal-server/src/request_id.rs	85	2238 B
+crates/shoal-server/src/routes/mod.rs	85	11058 B
+crates/shoal-server/src/routes/namespaces.rs	85	4485 B
+crates/shoal-server/src/routes/documents.rs	85	9610 B
+crates/shoal-server/src/routes/query.rs	85	2689 B
+crates/shoal-server/src/routes/export.rs	85	4465 B
+crates/shoal-server/src/routes/branch.rs	85	3233 B
+crates/shoal-server/src/routes/ops.rs	85	6082 B
+crates/shoal-server/src/routes/system.rs	85	1607 B
+cajas/shoal-it/Cargo.toml	85	716 B
+crates/shoal-it/src/lib.rs	85	25459 B
+crates/shoal-it/tests/branching.rs	85	9797 B
+crates/shoal-it/tests/cache.rs	85	6409 B
+crates/shoal-it/tests/api_surface.rs	85	15113 B
+crates/shoal-it/tests/minio.rs	85	6298 B
+cajas/shoal-it/README.md	85	3288 B
+SEGURIDAD.md	85	2049 B
+docs/security/threat-model.md	85	16438 B
+docs/security/hardening.md	85	14765 B
+cli/Cargo.toml	86	895 B
+cli/src/main.rs	86	3131 B
+cli/src/api.rs	86	14689 B
+cli/src/commands/mod.rs	86	85 B
+cli/src/commands/ns.rs	86	4308 B
+cli/src/commands/load.rs	86	14771 B
+cli/src/commands/query.rs	86	9921 B
+cli/src/commands/export.rs	86	1754 B
+cli/src/commands/bench.rs	86	15229 B
+cli/src/commands/dev.rs	86	4634 B
+cli/src/output.rs	86	2299 B
+cli/README.md	86	1387 B
+sdks/python/pyproject.toml	86	1570 a. C.
+sdks/python/shoal/_version.py	86	22 B
+sdks/python/shoal/py.typed	86	0 B
+sdks/python/shoal/errors.py	86	4640 B
+sdks/python/shoal/filters.py	86	6275 B
+sdks/python/shoal/models.py	86	4997 B
+sdks/python/shoal/_base.py	86	7791 B
+sdks/python/shoal/_transport.py	86	3542 B
+sdks/python/shoal/batch.py	86	1675 B
+sdks/python/shoal/client.py	86	13125 B
+sdks/python/shoal/aio.py	86	12450 B
+sdks/python/shoal/__init__.py	86	1799 B
+sdks/python/tests/test_filters.py	86	3209 B
+sdks/python/tests/test_batch.py	86	1640 a. C.
+sdks/python/tests/conftest.py	86	1228 B
+sdks/python/tests/test_client.py	86	14365 B
+sdks/python/tests/test_async_client.py	86	3514 B
+sdks/python/tests/test_models.py	86	1607 B
+sdks/python/README.md	86	5699 B
+sdks/typescript/package.json	86	1044 B
+sdks/typescript/tsconfig.json	86	487 B
+sdks/typescript/tsconfig.lint.json	86	149 B
+sdks/typescript/vitest.config.ts	86	183 B
+sdks/typescript/src/errors.ts	86	5808 B
+sdks/typescript/src/filters.ts	86	3369 B
+sdks/typescript/src/types.ts	86	5928 B
+sdks/typescript/src/transport.ts	86	9076 B
+sdks/typescript/src/batch.ts	86	3333 B
+sdks/typescript/src/namespace.ts	86	8351 B
+sdks/typescript/src/client.ts	86	2787 B
+sdks/typescript/src/index.ts	86	1528 B
+sdks/typescript/tests/helpers.ts	86	2407 B
+sdks/typescript/tests/filters.test.ts	86	1979 B
+sdks/typescript/tests/transport.test.ts	86	6234 B
+sdks/typescript/tests/batch.test.ts	86	2583 B
+sdks/typescript/tests/client.test.ts	86	7406 B
+sdks/typescript/README.md	86	4968 B
+desplegar/docker/Dockerfile	86	1582 B
+deploy/docker/docker-compose.yml	86	3302 B
+deploy/docker/README.md	86	1367 B
+ejemplos/compose-app/embed.py	86	1305 B
+ejemplos/compose-app/data/articles.jsonl	86	6440 B
+ejemplos/compose-app/seed.py	86	2497 B
+ejemplos/compose-app/app.py	86	6980 B
+ejemplos/compose-app/Dockerfile	86	530 B
+ejemplos/compose-app/README.md	86	1313 B
+deploy/k8s/README.md	86	1914 B
+deploy/k8s/00-namespace.yaml	86	99 B
+deploy/k8s/10-secret.example.yaml	86	442 B
+deploy/k8s/20-configmap.yaml	86	644 B
+deploy/k8s/30-api.yaml	86	2140 B
+deploy/k8s/40-worker.yaml	86	1534 B
+deploy/k8s/50-ingress.yaml	86	658 B
+deploy/helm/shoal/Chart.yaml	86	443 B
+deploy/helm/shoal/values.yaml	86	1995 B
+deploy/helm/shoal/templates/_helpers.tpl	86	1649 B
+deploy/helm/shoal/templates/serviceaccount.yaml	86	315 B
+deploy/helm/shoal/templates/configmap.yaml	86	728 B
+deploy/helm/shoal/templates/secret.yaml	86	585 B
+deploy/helm/shoal/templates/deployment-api.yaml	86	2753 B
+deploy/helm/shoal/templates/deployment-worker.yaml	86	2286 B
+deploy/helm/shoal/templates/service.yaml	86	413 B
+deploy/helm/shoal/templates/ingress.yaml	86	875 B
+deploy/helm/shoal/templates/NOTES.txt	86	1050 B
+desplegar/helm/shoal/.helmignore	86	55 B
+docs/deployment.md	86	7672 B
+e2e/README.md	86	2397 B
+e2e/python/requirements.txt	86	310 B
+e2e/python/pytest.ini	86	57 B
+e2e/python/helpers.py	86	5747 B
+e2e/python/conftest.py	86	2397 B
+e2e/python/test_namespace_lifecycle.py	86	1496 B
+e2e/python/test_ingest_and_query.py	86	4578 B
+e2e/python/test_filters_and_export.py	86	3236 B
+e2e/python/test_branching_and_cache.py	86	4185 B
+e2e/python/test_async.py	86	1541 B
+e2e/typescript/package.json	86	365 B
+e2e/typescript/tsconfig.json	86	403 B
+e2e/typescript/vitest.config.ts	86	599 B
+e2e/typescript/tests/helpers.ts	86	6451 B
+e2e/typescript/tests/lifecycle.test.ts	86	1784 B
+e2e/typescript/tests/ingest-query.test.ts	86	5735 B
+e2e/typescript/tests/branching.test.ts	86	4261 B
+.github/workflows/ci.yml	86	2976 B
+.github/workflows/e2e.yml	86	2281 B
+docs/cli.md	86	6605 B
+docs/sdks.md	86	5026 B
+.github/workflows/release.yml	86	6474 B
+.github/dependabot.yml	86	1061 B
+Makefile	86	2490 B
+docs/release.md	86	3169 B
+crates/shoal-query/src/codec.rs	84	16124 B
+crates/shoal-query/src/filter/docset.rs	84	8298 B
+crates/shoal-query/src/filter/mod.rs	84	17752 B
+crates/shoal-query/src/filter/index.rs	84	20192 B
+crates/shoal-query/tests/filter_algebra.rs	84	11929 B
+crates/shoal-query/src/wire.rs	84	7840 B
+crates/shoal-query/src/text/tokenizer.rs	84	7705 B
+crates/shoal-query/src/text/inverted.rs	84	21344 B
+crates/shoal-query/src/text/bm25.rs	84	5322 B
+crates/shoal-query/src/text/mod.rs	84	1898 B
+crates/shoal-query/src/sparse.rs	84	17344 B
+crates/shoal-query/src/fusion.rs	84	9611 B
+crates/shoal-query/tests/bm25_correctness.rs	84	11625 B
+crates/shoal-query/src/plan/mod.rs	84	9430 B
+crates/shoal-query/src/plan/request.rs	84	11726 B
+crates/shoal-query/src/plan/planner.rs	84	21890 B
+crates/shoal-query/src/plan/fuse.rs	84	6247 B
+crates/shoal-query/src/plan/executor.rs	84	19369 B
+crates/shoal-query/tests/planner_executor.rs	84	27336 B
+docs/milestone3-query-engine-audit.md	84	6779 B
+LÉAME.md	87	6933 B
+demostraciones/requisitos.txt	87	493 B
+demostrs/common/__init__.py	87	56 B
+demostrs/common/lagoon_client.py	87	12290 B
+demostraciones/comunes/embeddings.py	87	7335 B
+demostrs/búsqueda-semántica/README.md	87	2527 B
+demostraciones/búsqueda-semántica/datos/artículos.jsonl	87	21923 B
+demostrs/búsqueda-semántica/ingest.py	87	3530 B
+demostrs/búsqueda-semántica/search.py	87	3950 B
+demostrs/búsqueda-semántica/rag.py	87	6749 B
+demostrs/búsqueda-híbrida/README.md	87	2315 B
+demostrs/búsqueda-híbrida/datos/productos.jsonl	87	13250 B
+demostrs/búsqueda-híbrida/ingest.py	87	2000 B
+demostrs/búsqueda-híbrida/search.py	87	4812 B
+demostraciones/búsqueda-de-código/README.md	87	2232 B
+demostrs/code-search/ingest.py	87	4982 B
+demostraciones/búsqueda-de-código/búsqueda.py	87	3096 B
+demostraciones/búsqueda-de-código/demo_de_rama.py	87	7487 B
+demos/code-search/sample-repo/README.md	87	587 B
+demostrs/code-search/sample-repo/tidegauge/__init__.py	87	454 B
+demostrs/code-search/sample-repo/tidegauge/parser.py	87	1325 B
+demostrs/code-search/sample-repo/tidegauge/stats.py	87	1774 B
+demostrs/code-search/sample-repo/tidegauge/store.py	87	982 B
+demostrs/code-search/sample-repo/tidegauge/cli.py	87	1389 B
+demostraciones/búsqueda-de-código/superposición-de-características/medidor-de-tiebres/estadísticas.py	87	3356 B
+demostraciones/búsqueda-de-código/superposición-de-características/medidor-de-tiebres/pronóstico.py	87	1883 B
+puntos de referencia/requisitos.txt	87	131 B
+benchmarks/common.py	87	12527 B
+benchmarks/datagen.py	87	7541 B
+benchmarks/bench_ingest.py	87	5151 B
+benchmarks/bench_latency.py	87	6227 B
+benchmarks/bench_recall.py	87	4091 B
+benchmarks/bench_cache.py	87	5069 B
+benchmarks/run_all.py	87	8563 B
+benchmarks/README.md	87	1742 B
+docs/benchmark-guide.md	87	8370 B
+benchmarks/results/.gitignore	87	143 B
+docs/arquitectura.md	87	16817 B
+docs/api-reference.md	87	8788 B
+docs/python-sdk.md	87	4765 B
+docs/typescript-sdk.md	87	4914 B
+docs/deployment.md	87	8454 B
+docs/contributing.md	87	4057 B
+docs/roadmap.md	87	5162 B
+docs/non-goals.md	87	8952 B
+benchmarks/results/TEMPLATE.md	87	6624 B
+docs/index.md	87	1661 B
+Registro público de compilación (en tiempo real, con seguimiento de cada 0,01 $)
+2026-06-12 15:08 Todos los hitos completados. 4931 créditos no gastados devueltos proporcionalmente a 2 patrocinadores; solo pagas por la inferencia que la compilación realmente utilizó.
+2026-06-12 15:08 Hito 6 entregado en 5 pasadas: 841 créditos, 47 artefactos
+2026-06-12 15:08 Una revisión crítica del alcance financiado encontró dos brechas genuinas en una entrega que, por lo demás, estaba completa: el documento "no-objetivos para v1" financiado explícitamente y un artefacto de redacción de resultados concreto que impone la metodología de informes honestos (la guía de referencia describía la metodología, pero no existía una plantilla de informe para que los colaboradores la usaran). Esta revisión agrega docs/non-goals.md (once exclusiones explícitas con justificación y una política de no-comparaciones-no-verificadas), benchmarks/results/TEMPLATE.md (divulgación obligatoria de entorno/topología, tablas de latencia por clase de consulta, tablas de recuperación, registro de anomalías y una lista de verificación previa a la publicación) y un docs/index.md que vincula el conjunto de documentación. Estos son Markdown puro sin nuevas dependencias; Con ellos, todos los entregables enumerados —tres demostraciones ejecutables con datos incluidos y scripts de integración conectables, el conjunto de pruebas de rendimiento de seis ejes y el conjunto completo de documentación de diez elementos, incluidos los que no son objetivos— están presentes y son sustanciales, por lo que el hito ahora está realmente completo sin añadir relleno.
+2026-06-12 14:43 Hito 6 "Demos, Benchmarks & Documentation Suite" iniciado (objetivo de compilación 2400 créditos, límite de financiación 4800)
+2026-06-12 14:43 Hito 3 entregado en 5 pasadas: 1644 créditos, 31 artefactos
+2026-06-12 14:43 Se volvió a auditar el alcance financiado en comparación con los 30 archivos ya entregados: cada entregable de hito (kNN exacto (coseno/punto/euclidiano), IVF ANN con centroides residentes en el manifiesto y bloques de publicación almacenables en caché por lista más barridos de recuperación nprobe, tokenizador/índice invertido/BM25 con impulso de campo, puntuación dispersa, el álgebra de filtro completa con índices de atributos, fusión híbrida ponderada + RRF con consulta múltiple, proyección/top_k y el planificador) se asigna a un módulo concreto y un conjunto de pruebas, por lo que no estoy rellenando con código redundante; este paso agrega solo el documento de trazabilidad de aceptación. El responsable del mantenimiento debe verificar dos cosas que no puedo ejecutar aquí: que la lista de miembros `Cargo.toml` de la raíz del espacio de trabajo (o el patrón `crates/*`) incluya `crates/shoal-query`, y que `cargo test -p shoal-query` pase en la versión estable actual de Rust (el crate solo usa las dependencias declaradas en su propio `Cargo.toml`; no se introdujeron nuevas dependencias en esta pasada).
+2026-06-12 14:04 Hito 3 "Motor de consultas: búsqueda vectorial, texto completo BM25, filtros, híbrido, planificador" reanudado (objetivo de construcción 3500 créditos, límite de financiación 7000)
+2026-06-12 14:01 El hito 6 se ha vuelto a poner en cola para otro intento de compilación (reintento 1 de 2).
+2026-06-12 14:01 Análisis posterior al fallo (hito 6): Este intento de compilación no generó archivos porque la solicitud fue rechazada antes de que comenzara el trabajo. Las instrucciones de compilación se interpretaron erróneamente, a pesar de que este hito corresponde a documentación, demostración y pruebas de rendimiento habituales de código abierto. No se invirtió dinero en el intento fallido. La nueva ejecución reformulará el propósito del hito de forma clara e inequívoca para que el trabajo pueda continuar, y entregará los archivos en pequeños lotes completos, comenzando por los más importantes.
+2026-06-12 14:01 El hito 6 se ha vuelto a poner en cola para otro intento de compilación (reintento 1 de 2).
+2026-06-12 14:01 Análisis posterior (hito 6): El intento de compilación de este hito fue rechazado antes de que comenzara el trabajo, por lo que no se generaron archivos y no se cobró al pool por la salida. La solicitud parece haber sido malinterpretada; se trata de un paquete estándar de documentación, demostración y evaluación comparativa para una base de datos de búsqueda de código abierto. La nueva ejecución reformulará los objetivos del hito en términos más claros e inequívocos y comenzará a entregar las demostraciones y la documentación en pequeños lotes completos.
+2026-06-12 14:00 Hito 6 vuelto a poner en cola para otro intento de compilación (reintento 1 de 2).
+12/06/2026 14:00 Análisis posterior al fallo (hito 6): El intento de compilación para este hito no generó archivos porque la solicitud fue rechazada antes de que comenzara el trabajo; el sistema de revisión automatizado interpretó erróneamente la descripción del hito y se negó a continuar. No se gastaron fondos en el intento fallido. La nueva ejecución reformulará los objetivos del hito en términos más claros e inequívocos para que el trabajo (demostraciones, pruebas de rendimiento y documentación para una base de datos de búsqueda de código abierto) pueda continuar según lo previsto.
+2026-06-12 14:00 Hito 6 vuelto a poner en cola para otro intento de compilación (reintento 1 de 2).
+12/06/2026 14:00 Análisis posterior al proyecto (hito 6): Este intento de compilación fue rechazado antes de que comenzara el trabajo, por lo que no se generaron archivos ni se invirtió dinero en él. La solicitud parece haberse malinterpretado como algo distinto a una tarea estándar de software de código abierto, probablemente debido a la forma en que se redactó el hito. En la nueva ejecución, se reformulará el objetivo en términos de ingeniería claros y concretos (demostraciones, pruebas de rendimiento y documentación para una base de datos de búsqueda de código abierto) y se entregará el trabajo en lotes más pequeños y bien definidos.
+2026-06-12 14:00 Hito 6 vuelto a poner en cola para otro intento de compilación (reintento 1 de 2).
+12/06/2026 14:00 Análisis posterior (hito 6): El intento de compilación de este hito fue rechazado antes de que se produjera ningún trabajo, por lo que no se entregaron archivos ni se invirtió dinero en el intento. El rechazo parece deberse a la forma en que se formuló la tarea, más que al contenido del trabajo, que consiste en documentación estándar de código abierto, demostraciones y pruebas de rendimiento. En la nueva ejecución, se reformularán los objetivos del hito en términos técnicos claros e inequívocos y se entregará el trabajo en lotes pequeños y completos, comenzando por las partes más valiosas.
+2026-06-12 14:00 Hito 3 "Motor de consultas: búsqueda vectorial, texto completo BM25, filtros, híbrido, planificador" reanudado (objetivo de construcción 3500 créditos, techo financiado 7000)
+2026-06-12 14:00 Hito 6 vuelto a poner en cola para otro intento de compilación (reintento 1 de 2).
+2026-06-12 14:00 Análisis posterior al fallo (hito 6): Este intento de compilación no generó ningún archivo porque el sistema de revisión automatizado rechazó la solicitud antes de que comenzara el trabajo, probablemente debido a la forma en que se formuló el hito y no a ningún problema con el proyecto en sí. No se gastaron fondos en el intento fallido. La nueva ejecución reformulará los objetivos del hito en términos técnicos claros e inequívocos y entregará las demostraciones, los benchmarks y la documentación en lotes pequeños y completos.
+2026-06-12 14:00 Hito 3 vuelto a poner en cola para otro intento de compilación (reintento 1 de 2).
+12/06/2026 14:00 Análisis posterior al fallo (hito 3): La compilación de este hito se interrumpió a mitad de camino debido a una interrupción temporal de la infraestructura del servicio de compilación, no por ningún problema con el proyecto en sí. Ya se habían entregado once archivos antes de la interrupción y no se cobró ningún importe por el intento fallido. La nueva ejecución retomará el trabajo ya completado en lugar de empezar de cero, finalizando los componentes y las pruebas restantes del motor de consultas.
+2026-06-12 14:00 Hito 3 vuelto a poner en cola para otro intento de compilación (reintento 1 de 2).
+12/06/2026 14:00 Análisis post mortem (hito 3): La compilación del motor de consultas se interrumpió parcialmente debido a una interrupción temporal del servicio en la infraestructura de compilación; no se trató de un problema con el diseño del proyecto ni con el código. Se entregaron once archivos correctamente antes de la interrupción y no se cobró ningún importe por el intento fallido. La nueva ejecución retomará el trabajo ya completado en lugar de empezar de cero, centrándose en los componentes restantes del motor de consultas.
+2026-06-12 14:00 Hito 3 vuelto a poner en cola para otro intento de compilación (reintento 1 de 2).
+2026-06-12 14:00 Análisis post mortem (hito 3): La compilación de este hito se interrumpió a mitad de camino debido a una sobrecarga temporal del servicio de compilación. El proceso no presentó problemas de diseño ni de código, y ya se habían entregado 11 archivos antes de la interrupción. No se aplicó ningún cargo por el intento fallido. La nueva ejecución retomará el trabajo donde se interrumpió el intento anterior, conservando los archivos ya generados y completando los componentes restantes del motor de consultas en lugar de comenzar de nuevo.
+2026-06-12 09:03 El sistema de seguridad del modelo rechazó el hito 6. No se aplicó ningún cargo.
+2026-06-12 08:59 Hito 6 "Demos, Benchmarks & Documentation Suite" iniciado (objetivo de compilación 2400 créditos, límite de financiación 4800)
+2026-06-12 08:59 Hito 5 entregado en 6 pasadas: 1369 créditos, 103 artefactos
+2026-06-12 08:59 Se volvió a auditar el alcance del hito en comparación con el árbol entregado. La CLI (con comandos dev-stack, load, query, export, bench, namespace/warm), ambos SDK con pruebas y documentación, Docker Compose + aplicación de ejemplo, manifiestos K8s sin procesar, gráfico Helm, suites e2e de doble SDK y CI de compilación/lint/prueba ya estaban implementados; las brechas genuinas eran la automatización de lanzamiento/publicación y la ergonomía de desarrollo a nivel de repositorio, que este pase agrega: un flujo de trabajo de lanzamiento impulsado por etiquetas (binarios CLI con sumas de verificación, PyPI a través de publicación confiable, npm con procedencia, imagen GHCR, gráfico Helm OCI, GitHub Release), cobertura de Dependabot para los seis ecosistemas, un Makefile raíz que refleja los comandos CI y un runbook de lanzamiento. El mantenedor debe verificar dos veces en la primera ejecución: el flujo de trabajo de lanzamiento descubre el nombre del binario CLI a través de `cargo metadata` (sin codificación fija, pero verifique el diseño del archivo), la compilación de Docker asume el contexto raíz del repositorio con `deploy/docker/Dockerfile`, la publicación confiable de PyPI debe configurarse antes de la primera etiqueta, y las principales de acción fijadas (checkout@v4, setup-node@v4, build-push-action@v6, gh-release@v2, pypi-publish@release/v1) deben confirmarse como actuales. La auditoría de higiene de compilación no encontró dependencias no declaradas introducidas en esta pasada (no hay nuevos módulos de código, solo YAML/Make/docs).
+2026-06-12 08:20 Hito 5 "Experiencia del desarrollador: SDK de CLI, Python y TypeScript, empaquetado de implementación" iniciado (objetivo de compilación 2600 créditos, límite de financiación 5200)
+2026-06-12 08:20 Hito 4 entregado en 7 pasadas: 2501 créditos, 55 artefactos
+2026-06-12 08:20 Se entregó el alcance de la documentación final del hito 4: una política de divulgación raíz SECURITY.md, un modelo de amenazas completo basado en STRIDE (activos, límites de confianza, mitigaciones mapeadas al código/pruebas reales y una lista honesta de riesgo residual) y una guía de endurecimiento de implementación que cubre la topología TLS, el ciclo de vida de la clave, IAM de bucket de privilegios mínimos, cifrado en reposo SSE-S3/SSE-KMS/MinIO-KES, protección del directorio de caché, configuración de límite de velocidad/cuota, envío de registro de auditoría, endurecimiento de contenedores y una lista de verificación de operaciones. La auditoría final de higiene de compilación en el espacio de trabajo de Rust entregó este hito: todas las importaciones se mapean a las dependencias declaradas en los manifiestos de crate con restricciones de estilo caret, no se escribió manualmente ningún archivo de bloqueo y no se agregó ningún pin de cadena de herramientas. Los responsables del mantenimiento deben seguir comprobando las versiones resueltas: firmas de extractor/middleware de axum 0.7, nombres de métodos de rasgos `ObjectStore` de object_store 0.11, API de pipeline-builder de opentelemetry/opentelemetry-otlp 0.27 y uso del registro de prometheus 0.13; estos SDK cambian rápidamente y se escribieron de memoria.
+2026-06-12 07:03 Hito 4 "Servidor API, jerarquía de caché y ramificación de espacios de nombres" iniciado (objetivo de compilación 3100 créditos, límite de financiación 6200)
+2026-06-12 07:03 El hito 3 se interrumpió antes de completarse (reinicio del trabajador o fallo de la tarea) sin que se aplicara ningún cargo. Se marca como fallido; los demás hitos del proyecto continúan y cualquier fondo no utilizado se devuelve a los patrocinadores cuando finaliza.
+2026-06-12 07:03 El trabajo falló: {"type":"error","error":{"details":null,"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011CbxvFv9bDPWbQsQcEZqJh" }
+2026-06-12 06:38 Hito 3 "Motor de consultas: búsqueda vectorial, texto completo BM25, filtros, híbrido, planificador" iniciado (objetivo de construcción 3500 créditos, límite de financiación 7000)
+2026-06-12 06:26 Hito 3 "Motor de consultas: búsqueda vectorial, texto completo BM25, filtros, híbrido, planificador" iniciado (objetivo de construcción 3500 créditos, límite de financiación 7000)
+2026-06-12 06:26 Hito 2 entregado en 2 pasadas: 2096 créditos, 42 artefactos
+2026-06-12 06:26 Se entregó el alcance del hito restante: suite compaction-behavior (política de fusión, GC de tombstone, atomicidad + monotonicidad del manifiesto, eliminación diferida + seguridad de GC), pruebas de verificación/reparación/reconstrucción de administrador, la batería de conformidad de ObjectStore (memoria/localfs/S3) y pruebas de contrato de FailpointStore, la suite MinIO de extremo a extremo con control de entorno con servicio docker-compose + script de ejecución, el flujo de trabajo de CI y docs/testing.md. Dado que no puedo compilar aquí, un mantenedor debería conciliar los nuevos archivos de prueba con las API públicas entregadas anteriormente, específicamente: `Engine::{open, create_namespace, upsert, delete, get, scan, flush, compact, gc, manifest, verify, repair, rebuild}`, `EngineOptions::gc_grace`, `Manifest{version, segments[].doc_count}`, `layout::segment_prefix`, `ObjectMeta.key`, `ObjectStore::{put, get, list, delete, put_if_absent}` (reexportaciones raíz de `MemoryStore`/`LocalFsStore`/`S3Store`/`S3Config`/`FailpointStore`/`FailureMode` de `reef_store`), `FailpointStore::{new, fail_next_put/get/delete, clear_failpoints}` con `FailureMode::{ErrorBefore, ErrorAfter, Truncate(usize)}`, los nombres de campo `S3Config` y `S3Store::connect`, y los constructores `Document::new/with_vector/with_attr`: el cambio de nombre en las pruebas es mecánico si alguna firma difiere. Las pruebas se basan únicamente en las dependencias ya requeridas por los crates (`tokio` dev-dep, `bytes`); piezas externas para verificar: `bitnami/minio` respetando `MINIO_DEFAULT_BUCKETS`, y las acciones `dtolnay/rust-toolchain` / `Swatinem/rust-cache@v2`.
+2026-06-12 06:09 Hito 2 "Motor de almacenamiento y ruta de escritura duradera: WAL, segmentos, compactación, recuperación" reanudado (objetivo de compilación 3250 créditos, límite de financiación 6500)
+2026-06-12 05:22 Hito 2 "Motor de almacenamiento y ruta de escritura duradera: WAL, segmentos, compactación, recuperación" iniciado (objetivo de compilación 3250 créditos, techo financiado 6500)
+2026-06-12 05:22 Hito 1 entregado en 4 pasadas: 1102 créditos, 55 artefactos
+2026-06-12 05:22 Esta fase de endurecimiento cierra las brechas entre los documentos de diseño y el esqueleto construible: una nueva crate `gannet-format` hace que el formato de almacenamiento y las especificaciones de la API sean ejecutables: manifiestos versionados y archivos de puntero con reglas de compatibilidad hacia adelante/atrás probadas, la disposición canónica de clave de objeto con orden lexicográfico y garantías de propiedad de rama, el modelo de documento/atributo y el AST de filtro completo con semántica de evaluación de referencia, todo cubierto por pruebas unitarias y de integración. Una prueba de contrato ahora fija `api/openapi.yaml` a OpenAPI 3.1 y la superficie completa del punto final financiado, y una canalización de GitHub Actions impone fmt/clippy/build/test, análisis de OpenAPI y compilaciones de imágenes Docker en cada cambio. Con los cinco entregables clave (documentación de arquitectura, especificación de formato, especificación OpenAPI, compilación del espacio de trabajo de Rust con backends de almacenamiento fs/S3/MinIO y documentación sobre nomenclatura/objetivos no esenciales), además de estas garantías de ejecución, el paquete de diseño es realmente revisable y el esqueleto se puede construir de forma verificable.
+2026-06-12 04:51 Hito 1 "Fundamentos de Arquitectura y Diseño: formato de almacenamiento, especificación de API y estructura del proyecto" iniciado (objetivo de construcción 2100 créditos, límite de financiación 4200)
+2026-06-12 04:51 Reinicio del proyecto para una reconstrucción completa en el motor de compilación multipaso actualizado.

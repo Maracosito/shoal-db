@@ -1,0 +1,27 @@
+# Gannet server configuration — local development defaults.
+#
+# Load order: this file (via --config / GANNET_CONFIG), then environment
+# overrides: GANNET_LISTEN, GANNET_LOG_LEVEL, GANNET_LOG_FORMAT.
+#
+# Object-storage credentials are never placed in config files; for the s3
+# backend they come from the standard AWS credential chain.
+
+[server]
+listen = "127.0.0.1:8080"
+
+[log]
+level = "info"     # tracing filter directive, e.g. "info,gannet_core=debug"
+format = "text"    # "text" for humans, "json" for log pipelines
+
+[storage]
+backend = "fs"
+root = "./gannet-data"
+
+# --- S3 / MinIO alternative -------------------------------------------------
+# [storage]
+# backend = "s3"
+# bucket = "gannet-dev"
+# prefix = ""
+# region = "us-east-1"
+# endpoint = "http://127.0.0.1:9000"   # omit for real AWS S3
+# force_path_style = true              # required for MinIO

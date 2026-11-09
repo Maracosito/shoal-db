@@ -1,0 +1,4 @@
+# Lagoon benchmark suite dependencies.
+# Install with: pip install -r benchmarks/requirements.txt
+requests>=2.31,<3
+numpy>=1.24,<3

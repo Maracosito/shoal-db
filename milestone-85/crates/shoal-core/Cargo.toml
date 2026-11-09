@@ -1,0 +1,22 @@
+[package]
+name = "shoal-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shoal core engine: object-storage-native namespaces, WAL, segments, manifests, branching, and baseline query execution."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+bytes = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+object_store = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+crc32fast = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

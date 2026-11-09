@@ -1,0 +1,1383 @@
+openapi: 3.1.0
+info:
+  title: Gannet API
+  version: 0.1.0
+  summary: Object-storage-native vector and full-text search database.
+  description: |
+    Gannet is an open-source, object-storage-native search database for AI and
+    RAG applications. Durable state lives entirely in S3-compatible object
+    storage; compute nodes are stateless and cache hot data on local disk and
+    in memory.
+
+    ## Concepts
+
+    - **Namespace** — an isolated document space. All documents, indexes, WAL
+      files and manifests for a namespace live under a dedicated object-storage
+      prefix. Namespaces can be *copied* (deep copy) or *branched*
+      (copy-on-write, sharing immutable segments with the source).
+    - **Document** — a record with a unique `id`, an optional dense `vector`,
+      an optional `sparse_vector`, and arbitrary `attributes` (strings,
+      numbers, booleans, datetimes, and arrays thereof). Text attributes can be
+      full-text indexed with BM25 ranking.
+    - **Namespace version** — every committed write batch advances a
+      monotonically increasing `namespace_version` (the WAL commit sequence).
+      Conditional writes and read-your-writes checks are expressed against it.
+
+    ## Authentication
+
+    All endpoints except `/v1/health` and `/metrics` require an API key passed
+    as a bearer token: `Authorization: Bearer gnt_<key>`. Keys are scoped to a
+    project and carry one of three roles:
+
+    - `reader` — query, export, namespace metadata, list.
+    - `writer` — everything a reader can do, plus document writes, deletes,
+      warm/pin, copy and branch.
+    - `admin` — everything a writer can do, plus namespace create/update/delete
+      and key management.
+
+    Each operation below states its minimum required role.
+
+    ## Consistency
+
+    On a single-node deployment, writes are durable once acknowledged (the WAL
+    object has been committed to object storage) and immediately visible to
+    subsequent queries (read-your-writes). In multi-node deployments, queries
+    with `"consistency": "strong"` re-validate the latest manifest before
+    serving and remain read-your-writes at higher latency; `"eventual"` serves
+    from the node's cached manifest and may lag by the manifest refresh
+    interval. See `docs/architecture.md` for the full model.
+
+    ## Idempotency
+
+    Write endpoints accept an optional `Idempotency-Key` header. Replaying a
+    request with the same key within the retention window returns the original
+    result without re-applying the write.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  contact:
+    name: Gannet maintainers
+    url: https://github.com/gannet-db/gannet
+
+servers:
+  - url: http://localhost:8484
+    description: Local development server
+
+security:
+  - apiKey: []
+
+tags:
+  - name: namespaces
+    description: Create, inspect, update, and delete namespaces.
+  - name: documents
+    description: Upsert, patch, and delete documents.
+  - name: query
+    description: Vector, full-text, sparse, and hybrid search.
+  - name: data
+    description: Export, copy, and branch namespaces.
+  - name: cache
+    description: Cache warming and namespace pinning.
+  - name: system
+    description: Health and metrics.
+
+paths:
+  /v1/health:
+    get:
+      operationId: getHealth
+      tags: [system]
+      summary: Health check
+      description: |
+        Liveness/readiness probe. Reports server version and whether the
+        object-storage backend is reachable. No authentication required.
+      security: []
+      responses:
+        '200':
+          description: Server is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Server is unhealthy (e.g. object storage unreachable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      tags: [system]
+      summary: Prometheus metrics
+      description: |
+        Prometheus exposition format. Includes query latency histograms,
+        cold/warm cache hit counters, indexing lag, object-storage read/write
+        counters, WAL size, segment counts, and compaction status. No
+        authentication required by default; can be restricted via server
+        configuration.
+      security: []
+      responses:
+        '200':
+          description: Metrics in Prometheus text exposition format.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /v1/namespaces:
+    get:
+      operationId: listNamespaces
+      tags: [namespaces]
+      summary: List namespaces
+      description: Lists namespaces in the project. Minimum role `reader`.
+      parameters:
+        - name: prefix
+          in: query
+          description: Only return namespaces whose name starts with this prefix.
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          description: Opaque pagination cursor from a previous response.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: A page of namespaces.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamespaceList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      operationId: createNamespace
+      tags: [namespaces]
+      summary: Create a namespace
+      description: |
+        Creates a new, empty namespace. Vector dimensions and metric may be
+        declared up front or inferred from the first upserted vector.
+        Minimum role `admin`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNamespaceRequest'
+      responses:
+        '201':
+          description: Namespace created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Namespace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: A namespace with this name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/namespaces/{namespace}:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    get:
+      operationId: getNamespace
+      tags: [namespaces]
+      summary: Namespace metadata
+      description: |
+        Returns namespace configuration, approximate document count and size,
+        current `namespace_version`, branch lineage, and pin status.
+        Minimum role `reader`.
+      responses:
+        '200':
+          description: Namespace metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Namespace'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateNamespace
+      tags: [namespaces]
+      summary: Update namespace configuration
+      description: |
+        Updates mutable configuration (schema additions, full-text defaults).
+        Vector dimensions and metric are immutable once set. Minimum role
+        `admin`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNamespaceRequest'
+      responses:
+        '200':
+          description: Updated namespace metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Namespace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: deleteNamespace
+      tags: [namespaces]
+      summary: Delete a namespace
+      description: |
+        Deletes the namespace. Objects exclusively owned by this namespace are
+        garbage-collected asynchronously; segments still referenced by
+        branches are retained until the last referencing namespace is deleted.
+        Minimum role `admin`.
+      responses:
+        '202':
+          description: Deletion accepted; data is removed asynchronously.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted:
+                    type: boolean
+                    const: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/namespaces/{namespace}/documents:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    post:
+      operationId: upsertDocuments
+      tags: [documents]
+      summary: Upsert documents
+      description: |
+        Inserts or fully replaces documents. Accepts either **row** form
+        (`documents`: an array of document objects) or **columnar** form
+        (`ids`, `vectors`, `attributes` as parallel arrays), whichever is more
+        convenient for the producer. The whole batch commits atomically as a
+        single WAL entry. Minimum role `writer`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertRequest'
+      responses:
+        '200':
+          description: Batch durably committed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WriteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Conditional write failed (`if_version` mismatch).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Request body exceeds the configured batch size limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      operationId: patchDocuments
+      tags: [documents]
+      summary: Patch documents
+      description: |
+        Partially updates existing documents. Provided attributes are merged
+        into the existing document; an attribute set to `null` is removed.
+        Vectors are replaced when provided. Patching a non-existent ID is
+        reported per-document and does not fail the batch. Minimum role
+        `writer`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+      responses:
+        '200':
+          description: Batch durably committed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WriteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Conditional write failed (`if_version` mismatch).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/namespaces/{namespace}/documents/delete:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    post:
+      operationId: deleteDocuments
+      tags: [documents]
+      summary: Delete documents by ID or by filter
+      description: |
+        Deletes documents either by explicit `ids` or by a metadata `filter`.
+        Filter deletes support `dry_run` to preview the affected count without
+        committing. Deletes are recorded as tombstones in the WAL and reclaimed
+        during compaction. Minimum role `writer`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteRequest'
+      responses:
+        '200':
+          description: Delete committed (or dry-run evaluated).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/namespaces/{namespace}/query:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    post:
+      operationId: query
+      tags: [query]
+      summary: Query a namespace
+      description: |
+        Executes a single query or a batch of up to 16 queries against a
+        namespace. A query may combine any of: a dense `vector` clause, a
+        full-text `text` clause, a `sparse` vector clause, and a metadata
+        `filter`. When more than one ranking clause is present, results are
+        fused using the requested `fusion` method (reciprocal rank fusion or
+        weighted score fusion). The query planner chooses between exact kNN,
+        the IVF index, the inverted index, and filter-index pre-restriction
+        automatically; `exact: true` forces brute-force kNN. Minimum role
+        `reader`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+            examples:
+              hybrid:
+                summary: Hybrid vector + BM25 query with a filter
+                value:
+                  top_k: 10
+                  vector:
+                    values: [0.12, -0.34, 0.56, 0.78]
+                  text:
+                    query: "object storage compaction"
+                    fields:
+                      title: 2.0
+                      body: 1.0
+                  fusion:
+                    method: rrf
+                  filter:
+                    and:
+                      - attr: lang
+                        op: eq
+                        value: en
+                      - attr: stars
+                        op: gte
+                        value: 50
+                  include_attributes: [title, url]
+      responses:
+        '200':
+          description: Query results (single object or batch).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/QueryResponse'
+                  - $ref: '#/components/schemas/MultiQueryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /v1/namespaces/{namespace}/export:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    get:
+      operationId: exportNamespace
+      tags: [data]
+      summary: Export all documents
+      description: |
+        Streams the full contents of a namespace in stable ID order, paginated
+        with an opaque cursor. The export reflects a consistent snapshot of the
+        `namespace_version` at which iteration started. Set
+        `Accept: application/x-ndjson` to receive newline-delimited JSON
+        documents instead of a paged JSON object. Minimum role `reader`.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1000
+        - name: include_vectors
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: A page of documents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportResponse'
+            application/x-ndjson:
+              schema:
+                type: string
+                description: One JSON-encoded document per line.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/namespaces/{namespace}/copy:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    post:
+      operationId: copyNamespace
+      tags: [data]
+      summary: Copy a namespace
+      description: |
+        Creates an independent deep copy of the namespace under a new name.
+        Unlike branching, the copy shares no storage with the source and may
+        take time proportional to data size; the operation runs asynchronously
+        and the target namespace reports `status: copying` until complete.
+        Minimum role `writer`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopyRequest'
+      responses:
+        '202':
+          description: Copy started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Namespace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Target namespace already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/namespaces/{namespace}/branch:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    post:
+      operationId: branchNamespace
+      tags: [data]
+      summary: Branch a namespace (copy-on-write)
+      description: |
+        Creates a new namespace nearly instantly by writing a new manifest that
+        references the source's current immutable segments. The branch and the
+        source then evolve independently: writes to either side never affect
+        the other, and shared segments are reference-counted so deleting one
+        side never destroys data the other still needs. Branches can be
+        branched again (multi-level). Minimum role `writer`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BranchRequest'
+      responses:
+        '201':
+          description: Branch created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Namespace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Target namespace already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/namespaces/{namespace}/warm:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    post:
+      operationId: warmNamespace
+      tags: [cache]
+      summary: Warm the cache for a namespace
+      description: |
+        Asynchronously preloads the namespace's manifest, index structures,
+        and/or data segments into the node's local disk and memory caches so
+        that subsequent queries are served warm. Minimum role `writer`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WarmRequest'
+      responses:
+        '202':
+          description: Warm-up started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarmResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/namespaces/{namespace}/pin:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    put:
+      operationId: pinNamespace
+      tags: [cache]
+      summary: Pin a namespace in cache
+      description: |
+        Marks the namespace as pinned: its cached segments are exempt from LRU
+        eviction (up to the configured pinned-cache budget) and are re-warmed
+        after node restarts. Minimum role `writer`.
+      responses:
+        '200':
+          description: Namespace pinned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '507':
+          description: Pinned-cache budget exhausted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: unpinNamespace
+      tags: [cache]
+      summary: Unpin a namespace
+      description: Returns the namespace's cached data to normal LRU eviction. Minimum role `writer`.
+      responses:
+        '200':
+          description: Namespace unpinned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: 'gnt_<key>'
+      description: Project-scoped API key with role reader, writer, or admin.
+
+  parameters:
+    NamespacePath:
+      name: namespace
+      in: path
+      required: true
+      description: Namespace name.
+      schema:
+        $ref: '#/components/schemas/NamespaceName'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Client-chosen key (max 128 chars). Replaying a write with the same key
+        within the retention window returns the original result without
+        re-applying the write.
+      schema:
+        type: string
+        maxLength: 128
+
+  responses:
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: The API key's role does not permit this operation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Namespace (or resource) not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequests:
+      description: Rate limit or quota exceeded. Retry after the interval in `Retry-After`.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    NamespaceName:
+      type: string
+      pattern: '^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$'
+      description: 1-128 chars; letters, digits, `_`, `.`, `-`; must start with a letter or digit.
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code (e.g. `namespace_not_found`, `version_conflict`, `invalid_filter`).
+            message:
+              type: string
+            details:
+              description: Optional structured context.
+
+    HealthResponse:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, unhealthy]
+        version:
+          type: string
+          description: Server version string.
+        storage:
+          type: string
+          enum: [ok, unreachable]
+          description: Object-storage backend reachability.
+
+    DocumentId:
+      description: Document identifier — a string (1-256 chars) or an unsigned 64-bit integer.
+      oneOf:
+        - type: string
+          minLength: 1
+          maxLength: 256
+        - type: integer
+          minimum: 0
+
+    AttributeValue:
+      description: |
+        An attribute value: string, number, boolean, RFC 3339 datetime string,
+        or a homogeneous array of those. `null` is permitted in patch bodies to
+        delete an attribute.
+      oneOf:
+        - type: string
+        - type: number
+        - type: boolean
+        - type: array
+          items:
+            oneOf:
+              - type: string
+              - type: number
+              - type: boolean
+        - type: 'null'
+
+    SparseVector:
+      type: object
+      required: [indices, values]
+      properties:
+        indices:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+          description: Strictly increasing dimension indices.
+        values:
+          type: array
+          items:
+            type: number
+          description: Same length as `indices`.
+
+    Document:
+      type: object
+      required: [id]
+      properties:
+        id:
+          $ref: '#/components/schemas/DocumentId'
+        vector:
+          type: array
+          items:
+            type: number
+          description: Dense embedding. Dimensionality must match the namespace's vector config.
+        sparse_vector:
+          $ref: '#/components/schemas/SparseVector'
+        attributes:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AttributeValue'
+
+    VectorConfig:
+      type: object
+      required: [dimensions]
+      properties:
+        dimensions:
+          type: integer
+          minimum: 1
+          maximum: 16384
+        metric:
+          type: string
+          enum: [cosine, dot, euclidean]
+          default: cosine
+
+    FullTextOptions:
+      type: object
+      properties:
+        weight:
+          type: number
+          minimum: 0
+          default: 1.0
+          description: Default boost applied when this field participates in BM25 scoring.
+        language:
+          type: string
+          default: en
+          description: Analyzer language hint (stemming, stopwords).
+
+    AttributeSchema:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [string, int, float, bool, datetime, 'string[]', 'int[]', 'float[]']
+        filterable:
+          type: boolean
+          default: true
+          description: Maintain a filter index for this attribute.
+        full_text:
+          description: Enable BM25 full-text indexing for this string attribute. `true` for defaults, or an options object.
+          oneOf:
+            - type: boolean
+            - $ref: '#/components/schemas/FullTextOptions'
+
+    NamespaceConfig:
+      type: object
+      properties:
+        vector:
+          $ref: '#/components/schemas/VectorConfig'
+        sparse:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+              default: false
+        schema:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AttributeSchema'
+          description: |
+            Optional declared attribute schema. Undeclared attributes are
+            accepted with inferred types and default indexing behavior.
+
+    CreateNamespaceRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/NamespaceName'
+        config:
+          $ref: '#/components/schemas/NamespaceConfig'
+
+    UpdateNamespaceRequest:
+      type: object
+      properties:
+        config:
+          $ref: '#/components/schemas/NamespaceConfig'
+
+    Namespace:
+      type: object
+      required: [name, created_at, namespace_version, status]
+      properties:
+        name:
+          $ref: '#/components/schemas/NamespaceName'
+        status:
+          type: string
+          enum: [active, copying, deleting]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        namespace_version:
+          type: integer
+          minimum: 0
+          description: Latest committed WAL sequence number.
+        approx_doc_count:
+          type: integer
+        approx_size_bytes:
+          type: integer
+        branched_from:
+          type: ['string', 'null']
+          description: Source namespace and version if this namespace is a branch, e.g. `"docs@1042"`.
+        pinned:
+          type: boolean
+        config:
+          $ref: '#/components/schemas/NamespaceConfig'
+
+    NamespaceList:
+      type: object
+      required: [namespaces]
+      properties:
+        namespaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/Namespace'
+        next_cursor:
+          type: ['string', 'null']
+
+    RowUpsert:
+      type: object
+      required: [documents]
+      properties:
+        documents:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Document'
+        if_version:
+          type: integer
+          description: Conditional write — reject with 409 unless the namespace's current version equals this value.
+
+    ColumnarUpsert:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/DocumentId'
+        vectors:
+          type: array
+          items:
+            type: ['array', 'null']
+            items:
+              type: number
+          description: Parallel to `ids`; `null` entries omit the vector.
+        sparse_vectors:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/SparseVector'
+              - type: 'null'
+        attributes:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/AttributeValue'
+          description: Column name → array of values parallel to `ids`.
+        if_version:
+          type: integer
+
+    UpsertRequest:
+      description: Row-oriented or column-oriented upsert batch.
+      oneOf:
+        - $ref: '#/components/schemas/RowUpsert'
+        - $ref: '#/components/schemas/ColumnarUpsert'
+
+    PatchDocument:
+      type: object
+      required: [id]
+      properties:
+        id:
+          $ref: '#/components/schemas/DocumentId'
+        vector:
+          type: ['array', 'null']
+          items:
+            type: number
+        sparse_vector:
+          oneOf:
+            - $ref: '#/components/schemas/SparseVector'
+            - type: 'null'
+        attributes:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AttributeValue'
+          description: Merged into existing attributes; `null` values delete the attribute.
+
+    PatchRequest:
+      type: object
+      required: [documents]
+      properties:
+        documents:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PatchDocument'
+        if_version:
+          type: integer
+
+    WriteResponse:
+      type: object
+      required: [namespace_version]
+      properties:
+        namespace_version:
+          type: integer
+          description: The WAL sequence at which this batch committed.
+        upserted:
+          type: integer
+        patched:
+          type: integer
+        missing:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentId'
+          description: For patch batches — IDs that did not exist.
+
+    DeleteRequest:
+      description: Delete by explicit IDs or by metadata filter.
+      oneOf:
+        - type: object
+          required: [ids]
+          properties:
+            ids:
+              type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/DocumentId'
+            if_version:
+              type: integer
+        - type: object
+          required: [filter]
+          properties:
+            filter:
+              $ref: '#/components/schemas/Filter'
+            dry_run:
+              type: boolean
+              default: false
+              description: Evaluate the filter and return the match count without deleting.
+            if_version:
+              type: integer
+
+    DeleteResponse:
+      type: object
+      required: [deleted]
+      properties:
+        deleted:
+          type: integer
+          description: Number of documents deleted (or matched, for `dry_run`).
+        dry_run:
+          type: boolean
+        namespace_version:
+          type: ['integer', 'null']
+          description: Commit version; `null` for dry runs.
+
+    ComparisonFilter:
+      type: object
+      required: [attr, op]
+      additionalProperties: false
+      properties:
+        attr:
+          type: string
+          description: Attribute name, or `id` to filter on document IDs.
+        op:
+          type: string
+          enum: [eq, not_eq, gt, gte, lt, lte, in, not_in, contains_any, starts_with]
+        value:
+          description: |
+            Comparison operand. Scalar for `eq`/`not_eq`/`gt`/`gte`/`lt`/`lte`/
+            `starts_with`; array for `in`/`not_in`/`contains_any`.
+
+    AndFilter:
+      type: object
+      required: [and]
+      additionalProperties: false
+      properties:
+        and:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Filter'
+
+    OrFilter:
+      type: object
+      required: [or]
+      additionalProperties: false
+      properties:
+        or:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Filter'
+
+    NotFilter:
+      type: object
+      required: [not]
+      additionalProperties: false
+      properties:
+        not:
+          $ref: '#/components/schemas/Filter'
+
+    Filter:
+      description: Recursive boolean filter tree over document attributes.
+      oneOf:
+        - $ref: '#/components/schemas/ComparisonFilter'
+        - $ref: '#/components/schemas/AndFilter'
+        - $ref: '#/components/schemas/OrFilter'
+        - $ref: '#/components/schemas/NotFilter'
+
+    VectorQuery:
+      type: object
+      required: [values]
+      properties:
+        values:
+          type: array
+          items:
+            type: number
+        metric:
+          type: string
+          enum: [cosine, dot, euclidean]
+          description: Overrides the namespace default metric for this query.
+        nprobe:
+          type: integer
+          minimum: 1
+          description: Number of IVF cells to probe (recall/latency knob). Defaults to a server-chosen value.
+
+    TextQuery:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        fields:
+          description: |
+            Fields to search. Either an array of field names (weight 1.0 each)
+            or a map of field name → boost weight. Defaults to all full-text
+            indexed fields with their schema weights.
+          oneOf:
+            - type: array
+              items:
+                type: string
+            - type: object
+              additionalProperties:
+                type: number
+        operator:
+          type: string
+          enum: [or, and]
+          default: or
+          description: Whether all terms must match (`and`) or any (`or`).
+
+    Fusion:
+      type: object
+      properties:
+        method:
+          type: string
+          enum: [rrf, weighted]
+          default: rrf
+        rrf_k:
+          type: integer
+          minimum: 1
+          default: 60
+          description: RRF rank constant.
+        weights:
+          type: object
+          properties:
+            vector:
+              type: number
+              default: 1.0
+            text:
+              type: number
+              default: 1.0
+            sparse:
+              type: number
+              default: 1.0
+          description: For `weighted` fusion — per-clause weights applied to min-max-normalized scores.
+
+    Query:
+      type: object
+      properties:
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 1200
+          default: 10
+        vector:
+          $ref: '#/components/schemas/VectorQuery'
+        text:
+          $ref: '#/components/schemas/TextQuery'
+        sparse:
+          $ref: '#/components/schemas/SparseVector'
+        fusion:
+          $ref: '#/components/schemas/Fusion'
+        filter:
+          $ref: '#/components/schemas/Filter'
+        exact:
+          type: boolean
+          default: false
+          description: Force exact brute-force kNN instead of the ANN index.
+        include_attributes:
+          description: '`true` for all attributes, `false` for none, or an explicit list.'
+          oneOf:
+            - type: boolean
+            - type: array
+              items:
+                type: string
+          default: true
+        include_vectors:
+          type: boolean
+          default: false
+        consistency:
+          type: string
+          enum: [strong, eventual]
+          default: strong
+      description: |
+        At least one of `vector`, `text`, `sparse`, or `filter` must be
+        present. A filter-only query returns matching documents in stable ID
+        order.
+
+    QueryRequest:
+      oneOf:
+        - $ref: '#/components/schemas/Query'
+        - type: object
+          required: [queries]
+          properties:
+            queries:
+              type: array
+              minItems: 1
+              maxItems: 16
+              items:
+                $ref: '#/components/schemas/Query'
+
+    QueryResult:
+      type: object
+      required: [id, score]
+      properties:
+        id:
+          $ref: '#/components/schemas/DocumentId'
+        score:
+          type: number
+          description: Final (possibly fused) relevance score; higher is better.
+        distance:
+          type: number
+          description: Raw vector distance, when a vector clause ran.
+        signals:
+          type: object
+          properties:
+            vector_score:
+              type: number
+            text_score:
+              type: number
+            sparse_score:
+              type: number
+          description: Per-clause scores prior to fusion.
+        attributes:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AttributeValue'
+        vector:
+          type: array
+          items:
+            type: number
+        sparse_vector:
+          $ref: '#/components/schemas/SparseVector'
+
+    QueryResponse:
+      type: object
+      required: [results, took_ms, namespace_version]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueryResult'
+        took_ms:
+          type: number
+        namespace_version:
+          type: integer
+          description: The namespace version the query observed.
+        cache:
+          type: object
+          properties:
+            temperature:
+              type: string
+              enum: [cold, warm, hot]
+              description: hot = served from memory, warm = local disk, cold = object storage fetches were required.
+
+    MultiQueryResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueryResponse'
+
+    ExportResponse:
+      type: object
+      required: [documents]
+      properties:
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/Document'
+        next_cursor:
+          type: ['string', 'null']
+        namespace_version:
+          type: integer
+          description: Snapshot version this export iterates over.
+
+    CopyRequest:
+      type: object
+      required: [target]
+      properties:
+        target:
+          $ref: '#/components/schemas/NamespaceName'
+
+    BranchRequest:
+      type: object
+      required: [target]
+      properties:
+        target:
+          $ref: '#/components/schemas/NamespaceName'
+        at_version:
+          type: integer
+          description: Branch from a historical namespace version still retained in storage; defaults to the latest.
+
+    WarmRequest:
+      type: object
+      properties:
+        components:
+          type: array
+          items:
+            type: string
+            enum: [manifest, vector_index, fts_index, filter_index, segments, all]
+          default: [all]
+
+    WarmResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [started, already_warm]
+        estimated_bytes:
+          type: integer
+          description: Approximate bytes that will be fetched.
+
+    PinResponse:
+      type: object
+      required: [namespace, pinned]
+      properties:
+        namespace:
+          $ref: '#/components/schemas/NamespaceName'
+        pinned:
+          type: boolean

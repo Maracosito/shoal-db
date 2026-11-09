@@ -1,0 +1,48 @@
+{
+  "name": "@shoal-db/client",
+  "version": "0.5.0",
+  "description": "Official TypeScript/JavaScript SDK for Shoal, the object-storage-native vector + full-text search database.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "vector-search",
+    "full-text-search",
+    "bm25",
+    "hybrid-search",
+    "rag",
+    "database",
+    "shoal"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shoal-db/shoal",
+    "directory": "sdks/typescript"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit -p tsconfig.lint.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
+}
